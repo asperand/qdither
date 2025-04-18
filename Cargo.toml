@@ -1,0 +1,11 @@
+[package]
+name = "qdither"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = "4.5.36"
+image = "0.25.6"
+num-integer = "0.1.46"
+rand = "0.9.1"
+rgb = "0.8.50"
