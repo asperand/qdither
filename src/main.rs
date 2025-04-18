@@ -49,14 +49,14 @@ fn cli() -> Command {
         .about("Reduces the colors in an image.")
         .version("0.1")
         .arg(arg!(<IMG> "Image file to reference."))
-        .arg(arg!(<NUM> "Number of colors to reduce to. (DEFAULT: 32)")
+        .arg(arg!(<NUM> "Number of colors to reduce to.")
             .value_parser(value_parser!(u8))
             .required(false)
             .default_value("32")
             )
         .arg(arg!(<PAL> "Optional palette file")
             .required(false)
-            .default_value("")
+            .default_value("NONE")
             )
 }
 
