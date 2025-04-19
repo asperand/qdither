@@ -225,12 +225,23 @@ fn to_raw_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
     return raw_sequence
 }
 
+fn to_raw_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
+    let mut raw_sequence = Vec::new();
+    for pixel in image_rgb_vec {
+        raw_sequence.push(pixel.r);
+        raw_sequence.push(pixel.g);
+        raw_sequence.push(pixel.b);
+        raw_sequence.push(255 as u8);
+    }
+    return raw_sequence
+}
+
 /// Use K-Means algorithm to find the mean colors within an image given X clusters
 fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
     let mut cluster_vec = Vec::<Cluster>::new(); // Empty vector of our clusters.
     for _i in 0..(palette_colors) { // How many colors we want out of the image decides how many clusters we create.
         let new_cluster = Cluster {
-            centroid : image[rand::rng().random_range(0..image.len())], // A random pixel within the image.
+            centroid : image[::rand::rng().random_range(0..image.len())], // A random pixel within the image.
             values : Vec::<RGB<u8>>::new() // An empty vector of pixel values.
         };
         cluster_vec.push(new_cluster)
@@ -290,3 +301,6 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
    return new_cent_vec;
 }
 
+async fn frame_draw(){
+    println!("DRAWING FRAME!");
+}
