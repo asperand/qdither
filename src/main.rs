@@ -10,6 +10,9 @@
     Thanks for checking it out!
 
 */
+use tokio::sync::mpsc::UnboundedReceiver;
+use macroquad::prelude::*;
+use tokio::sync::mpsc::UnboundedSender;
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -23,7 +26,8 @@ use image::open;
 use num_integer::div_ceil;
 use clap::value_parser;
 use clap::{arg, Command};
-use rand::Rng;
+use ::rand::Rng;
+use tokio::sync::mpsc;
 
 /// We need to be able to add and subtract u8s (subpixels) together without it over/underflowing.
 trait RgbSatAdd {
@@ -76,7 +80,8 @@ fn cli() -> Command {
 }
 
 /// Main Logic
-fn main() {
+#[tokio::main]
+async fn main() {
     let matches = cli().get_matches();
     let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
     let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
@@ -87,8 +92,13 @@ fn main() {
         Ok(user_palette) => user_palette,
         Err(_) =>  get_colors(&mut image_tuple.0,*palette_colors), // No file specified or found? Use colors from the image.
     };
-    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette);
-    let new_raw = to_raw_from_rgb(dithered_image);
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let result = frame_draw(receiver,image_tuple.2 as u16,image_tuple.1 as u16);
+        result.await;
+    });
+    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette,sender);
+    let new_raw = to_raw_from_rgb(dithered_image.await);
     let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
     let _ = match new_buffer.save("./dither.png") {
         Err(_) => println!("Couldn't save image buffer"),
@@ -167,7 +177,7 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>) -> Vec<RGB<u8>> {
+async fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,sender:UnboundedSender<Vec<RGB<u8>>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -210,6 +220,7 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop.
             wrapper_end = true;
         }
+        sender.send(image_rgb_vec.to_vec()).unwrap();
     }
     return image_rgb_vec.to_vec()
 }
@@ -301,6 +312,12 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
    return new_cent_vec;
 }
 
-async fn frame_draw(){
-    println!("DRAWING FRAME!");
+async fn frame_draw(mut receiver:UnboundedReceiver<Vec<RGB<u8>>>,width:u16,height:u16) -> bool{
+    let mut i = 1;
+    while let Some(rgb_vec) = receiver.recv().await {
+        let rgba = to_raw_rgba_from_rgb(rgb_vec);
+        let texture = Texture2D::from_rgba8(width, height, &rgba);
+        draw_texture(&texture, 0., 0., WHITE);
+    }
+    return true;
 }
