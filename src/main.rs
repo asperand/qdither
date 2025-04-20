@@ -10,10 +10,6 @@
     Thanks for checking it out!
 
 */
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::unbounded_channel;
-use std::thread;
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -27,7 +23,7 @@ use image::open;
 use num_integer::div_ceil;
 use clap::value_parser;
 use clap::{arg, Command};
-use ::rand::Rng;
+use rand::Rng;
 
 /// We need to be able to add and subtract u8s (subpixels) together without it over/underflowing.
 trait RgbSatAdd {
@@ -80,8 +76,7 @@ fn cli() -> Command {
 }
 
 /// Main Logic
-#[tokio::main]
-async fn main() {
+fn main() {
     let matches = cli().get_matches();
     let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
     let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
@@ -92,14 +87,8 @@ async fn main() {
         Ok(user_palette) => user_palette,
         Err(_) =>  get_colors(&mut image_tuple.0,*palette_colors), // No file specified or found? Use colors from the image.
     };
-    let (sender, receiver) = unbounded_channel();
-    tokio::spawn(async move {
-            let result = frame_draw(receiver,image_tuple.2,image_tuple.1);
-            result.await;
-        });
- 
-    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette,sender);
-    let new_raw = to_raw_from_rgb(dithered_image.await);
+    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette);
+    let new_raw = to_raw_from_rgb(dithered_image);
     let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
     let _ = match new_buffer.save("./dither.png") {
         Err(_) => println!("Couldn't save image buffer"),
@@ -178,7 +167,7 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-async fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,sender:UnboundedSender<Vec<RGB<u8>>>) -> Vec<RGB<u8>> {
+fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -221,7 +210,6 @@ async fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32,
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop.
             wrapper_end = true;
         }
-        let _ = sender.send(image_rgb_vec.to_vec());
     }
     return image_rgb_vec.to_vec()
 }
@@ -237,23 +225,12 @@ fn to_raw_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
     return raw_sequence
 }
 
-fn to_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
-    let mut raw_sequence = Vec::new();
-    for pixel in image_rgb_vec {
-        raw_sequence.push(pixel.r);
-        raw_sequence.push(pixel.g);
-        raw_sequence.push(pixel.b);
-        raw_sequence.push(255 as u8);
-    }
-    return raw_sequence
-}
-
 /// Use K-Means algorithm to find the mean colors within an image given X clusters
 fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
     let mut cluster_vec = Vec::<Cluster>::new(); // Empty vector of our clusters.
     for _i in 0..(palette_colors) { // How many colors we want out of the image decides how many clusters we create.
         let new_cluster = Cluster {
-            centroid : image[::rand::rng().random_range(0..image.len())], // A random pixel within the image.
+            centroid : image[rand::rng().random_range(0..image.len())], // A random pixel within the image.
             values : Vec::<RGB<u8>>::new() // An empty vector of pixel values.
         };
         cluster_vec.push(new_cluster)
@@ -311,12 +288,4 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
         }
    }
    return new_cent_vec;
-}
-
-async fn frame_draw(mut receiver:UnboundedReceiver<Vec<RGB<u8>>>,width:u32,height:u32){
-    let mut i = 0;
-    while let Some(rgb_vec) = receiver.recv().await {
-        i += 1;
-        println!("'rendering' frame #{}",i);
-    }
 }
