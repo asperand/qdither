@@ -68,36 +68,45 @@ fn cli() -> Command {
         .about("Reduces the colors in an image.")
         .version("0.1")
         .arg(arg!(<IMG> "Image file to reference."))
+        .arg(arg!(<PAL> "Optional palette file")
+            .required(false)
+            .default_value("NONE")
+            )
         .arg(arg!(<NUM> "Number of colors to reduce to.")
             .value_parser(value_parser!(u8))
             .required(false)
             .default_value("32")
-            )
-        .arg(arg!(<PAL> "Optional palette file")
-            .required(false)
-            .default_value("NONE")
             )
 }
 
 /// Main Logic
 #[macroquad::main("qdither")]
 async fn main() {
-    let render_data = Arc::new(Mutex::new((vec![RGB{r:3,g:3,b:3}],1,1))); // Our frame data for Macroquad.
+    let render_data = Arc::new(Mutex::new((vec![RGB{r:3,g:3,b:3}],1,1,"WAIT"))); // Our frame data for Macroquad.
     let render_data_clone = Arc::clone(&render_data);
     let _main_handle = thread::spawn(move || { run(render_data);}); // Main logic for image processing.
     loop {
         let rgb_vec;
         let (width, height);
+        let status;
         {
             let current_state = render_data_clone.lock().unwrap();
             rgb_vec = current_state.0.clone();
             width = current_state.1 as u16;
             height = current_state.2 as u16;
+            status = current_state.3;
         }
         let rgba = to_raw_rgba_from_rgb(rgb_vec.to_vec());
         let texture = Texture2D::from_rgba8(width, height, &rgba);
-        clear_background(LIGHTGRAY);
+        clear_background(BLACK);
+        if status == "PRNT" {
+            request_new_screen_size(width as f32,height as f32);
+        }
         draw_texture(&texture, 0., 0., WHITE);
+        if status == "DONE" {
+            request_new_screen_size(width as f32,(height+30) as f32);
+            draw_text("Saved to dither.png", 5.0, (height+20) as f32, 25.0, RED);
+        }
         next_frame().await
     }
 }
@@ -173,7 +182,7 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32)>>) -> Vec<RGB<u8>> {
+fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str)>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -221,9 +230,15 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
             current_state.0 = image_rgb_vec.to_vec();
             current_state.1 = width;
             current_state.2 = height;
+            current_state.3 = "PRNT";
         }
     }
+    {
+        let mut current_state = mutex.lock().unwrap();
+        current_state.3 = "DONE"
+    }
     return image_rgb_vec.to_vec()
+    
 }
 
 /// Make a raw sequence of u8 for image output from a vector of RGB values.
@@ -313,7 +328,7 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
    return new_cent_vec;
 }
 
-fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32)>>){
+fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str)>>){
     let matches = cli().get_matches();
     let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
     let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
