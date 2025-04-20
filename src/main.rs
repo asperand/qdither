@@ -11,8 +11,9 @@
 
 */
 use tokio::sync::mpsc::UnboundedReceiver;
-use macroquad::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
+use std::thread;
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -27,7 +28,6 @@ use num_integer::div_ceil;
 use clap::value_parser;
 use clap::{arg, Command};
 use ::rand::Rng;
-use tokio::sync::mpsc;
 
 /// We need to be able to add and subtract u8s (subpixels) together without it over/underflowing.
 trait RgbSatAdd {
@@ -92,11 +92,12 @@ async fn main() {
         Ok(user_palette) => user_palette,
         Err(_) =>  get_colors(&mut image_tuple.0,*palette_colors), // No file specified or found? Use colors from the image.
     };
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, receiver) = unbounded_channel();
     tokio::spawn(async move {
-        let result = frame_draw(receiver,image_tuple.2 as u16,image_tuple.1 as u16);
-        result.await;
-    });
+            let result = frame_draw(receiver,image_tuple.2,image_tuple.1);
+            result.await;
+        });
+ 
     let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette,sender);
     let new_raw = to_raw_from_rgb(dithered_image.await);
     let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
@@ -220,7 +221,7 @@ async fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32,
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop.
             wrapper_end = true;
         }
-        sender.send(image_rgb_vec.to_vec()).unwrap();
+        let _ = sender.send(image_rgb_vec.to_vec());
     }
     return image_rgb_vec.to_vec()
 }
@@ -236,7 +237,7 @@ fn to_raw_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
     return raw_sequence
 }
 
-fn to_raw_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
+fn to_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
     let mut raw_sequence = Vec::new();
     for pixel in image_rgb_vec {
         raw_sequence.push(pixel.r);
@@ -312,12 +313,10 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
    return new_cent_vec;
 }
 
-async fn frame_draw(mut receiver:UnboundedReceiver<Vec<RGB<u8>>>,width:u16,height:u16) -> bool{
-    let mut i = 1;
+async fn frame_draw(mut receiver:UnboundedReceiver<Vec<RGB<u8>>>,width:u32,height:u32){
+    let mut i = 0;
     while let Some(rgb_vec) = receiver.recv().await {
-        let rgba = to_raw_rgba_from_rgb(rgb_vec);
-        let texture = Texture2D::from_rgba8(width, height, &rgba);
-        draw_texture(&texture, 0., 0., WHITE);
+        i += 1;
+        println!("'rendering' frame #{}",i);
     }
-    return true;
 }
