@@ -10,6 +10,7 @@
     Thanks for checking it out!
 
 */
+
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -23,7 +24,10 @@ use image::open;
 use num_integer::div_ceil;
 use clap::value_parser;
 use clap::{arg, Command};
-use rand::Rng;
+use ::rand::Rng;
+use std::thread;
+use macroquad::prelude::*;
+use std::sync::{Arc, Mutex};
 
 /// We need to be able to add and subtract u8s (subpixels) together without it over/underflowing.
 trait RgbSatAdd {
@@ -76,24 +80,26 @@ fn cli() -> Command {
 }
 
 /// Main Logic
-fn main() {
-    let matches = cli().get_matches();
-    let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
-    let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
-    let palette_path = matches.get_one::<String>("PAL").expect("Couldn't get palette path.");
-    let mut image_tuple = load_file(&file_path).expect("Couldn't open file");
-    let user_palette_result = setup_palette(palette_path);
-    let user_palette = match user_palette_result {
-        Ok(user_palette) => user_palette,
-        Err(_) =>  get_colors(&mut image_tuple.0,*palette_colors), // No file specified or found? Use colors from the image.
-    };
-    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette);
-    let new_raw = to_raw_from_rgb(dithered_image);
-    let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
-    let _ = match new_buffer.save("./dither.png") {
-        Err(_) => println!("Couldn't save image buffer"),
-        Ok(_) => println!("Saved image buffer to dither.png"),
-    };
+#[macroquad::main("qdither")]
+async fn main() {
+    let render_data = Arc::new(Mutex::new((vec![RGB{r:3,g:3,b:3}],1,1))); // Our frame data for Macroquad.
+    let render_data_clone = Arc::clone(&render_data);
+    let _main_handle = thread::spawn(move || { run(render_data);}); // Main logic for image processing.
+    loop {
+        let rgb_vec;
+        let (width, height);
+        {
+            let current_state = render_data_clone.lock().unwrap();
+            rgb_vec = current_state.0.clone();
+            width = current_state.1 as u16;
+            height = current_state.2 as u16;
+        }
+        let rgba = to_raw_rgba_from_rgb(rgb_vec.to_vec());
+        let texture = Texture2D::from_rgba8(width, height, &rgba);
+        clear_background(LIGHTGRAY);
+        draw_texture(&texture, 0., 0., WHITE);
+        next_frame().await
+    }
 }
 
 /// Set up a vector of RGB values from a text-based palette file.
@@ -167,7 +173,7 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>) -> Vec<RGB<u8>> {
+fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32)>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -210,6 +216,12 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop.
             wrapper_end = true;
         }
+        { // Modify our Mutex so that Macroquad can get the new frame.
+            let mut current_state = mutex.lock().unwrap();
+            current_state.0 = image_rgb_vec.to_vec();
+            current_state.1 = width;
+            current_state.2 = height;
+        }
     }
     return image_rgb_vec.to_vec()
 }
@@ -225,17 +237,28 @@ fn to_raw_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
     return raw_sequence
 }
 
+fn to_raw_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
+    let mut raw_sequence = Vec::new();
+    for pixel in image_rgb_vec {
+        raw_sequence.push(pixel.r);
+        raw_sequence.push(pixel.g);
+        raw_sequence.push(pixel.b);
+        raw_sequence.push(255 as u8)
+    }
+    return raw_sequence
+}
+
 /// Use K-Means algorithm to find the mean colors within an image given X clusters
 fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
     let mut cluster_vec = Vec::<Cluster>::new(); // Empty vector of our clusters.
     for _i in 0..(palette_colors) { // How many colors we want out of the image decides how many clusters we create.
         let new_cluster = Cluster {
-            centroid : image[rand::rng().random_range(0..image.len())], // A random pixel within the image.
+            centroid : image[::rand::rng().random_range(0..image.len())], // A random pixel within the image.
             values : Vec::<RGB<u8>>::new() // An empty vector of pixel values.
         };
         cluster_vec.push(new_cluster)
    }
-   let mut new_cent_vec = Vec::<RGB<u8>>::new(); // This is hacky, but we need this to be available function-wide so we can return it.
+   let mut new_cent_vec: Vec::<RGB<u8>>; // This is hacky, but we need this to be available function-wide so we can return it.
    loop {
         for pixel in image.into_iter() { // for each pixel in the image, we find the lowest distance cluster and assign it to that.
             let mut lowest_distance_index = 0; // reset the referential index for finding the best cluster each pixel...
@@ -288,4 +311,24 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
         }
    }
    return new_cent_vec;
+}
+
+fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32)>>){
+    let matches = cli().get_matches();
+    let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
+    let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
+    let palette_path = matches.get_one::<String>("PAL").expect("Couldn't get palette path.");
+    let mut image_tuple = load_file(&file_path).expect("Couldn't open file");
+    let user_palette_result = setup_palette(palette_path);
+    let user_palette = match user_palette_result {
+        Ok(user_palette) => user_palette,
+        Err(_) =>  get_colors(&mut image_tuple.0,*palette_colors), // No file specified or found? Use colors from the image.
+    };
+    let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette,render_data);
+    let new_raw = to_raw_from_rgb(dithered_image);
+    let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
+    let _ = match new_buffer.save("./dither.png") {
+        Err(_) => println!("Couldn't save image buffer"),
+        Ok(_) => println!("Saved image buffer to dither.png"),
+    };
 }
