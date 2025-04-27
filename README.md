@@ -7,5 +7,3 @@ The custom palette file uses RGB hexcode formatting (e.g. `#0decaf`) for colors,
 Thanks for checking out this project!
 
 ![A screenshot of the visual output.](https://i.ibb.co/pv7JQTG6/1bfca7386e90ff23850365d3ac8dde96.png "A screenshot of the visual output.")
-![An example of the dither using a 256 color VGA palette.](https://img.notionusercontent.com/s3/prod-files-secure%2F434cc333-a8e4-49ad-9b91-9d86e769ced7%2F5583fc1c-b6de-4254-81f0-3cf04cf31ec1%2Fdither.png/size/w=2000?exp=1745093923&sig=HYEctriQFJ2KzAakci_MDHYKB5uPthqHtY0WvqIpWVw&id=13bf10a4-5f6e-8015-806a-cefd9c478586&table=block&userId=8f00a415-ee4d-41db-95ab-eb44bd86d530 "An example of the dither using a 256 color VGA palette.")
-![An example of the dither using a 4 color GameBoy-like palette.](https://img.notionusercontent.com/s3/prod-files-secure%2F434cc333-a8e4-49ad-9b91-9d86e769ced7%2F215e48c3-3941-494b-aa6e-4157e2fe80ec%2Fdither.png/size/w=2000?exp=1745093941&sig=NAUDI3oY12MYG_axXkJLx4yPJxc5AgfogKNXfHMtjpM&id=13bf10a4-5f6e-80f6-a47b-ff89d49cfa07&table=block&userId=8f00a415-ee4d-41db-95ab-eb44bd86d530 "An example of the dither using a 4 color GameBoy-like palette.")
