@@ -5,5 +5,3 @@ It achieves a "dithering" effect through Floyd-Steinberg Error Diffusion. It wil
 The custom palette file uses RGB hexcode formatting (e.g. `#0decaf`) for colors, and has a decent ability to filter out junk data. [Lospec](https://lospec.com/palette-list) provides free custom palette downloads in the `.HEX` format, which is what the file reader was designed around.
 
 Thanks for checking out this project!
-
-![A screenshot of the visual output.](https://i.ibb.co/pv7JQTG6/1bfca7386e90ff23850365d3ac8dde96.png "A screenshot of the visual output.")
