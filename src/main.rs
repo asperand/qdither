@@ -189,7 +189,7 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
     if height == 1 { // If the image is 1 pixel tall we start at the bottom.
         wrapper_end = true;
     }
-    for i in 0..(image_rgb_vec.len()-1){ // For every pixel in the image...
+    for i in 0..(image_rgb_vec.len()){ // For every pixel in the image...
         let i_a = i as u32;
         let new_color = find_nearest_color(image_rgb_vec[i],user_palette.clone()); // Find nearest color in palette.
         let quant_err = image_rgb_vec[i].saturating_sub(new_color); // Quant error calculation.
