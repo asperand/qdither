@@ -186,6 +186,10 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
+    let mut frameskip_flag = false;
+    if width*height > 1000000 { // if the image is over 1mp, going pixel by pixel is far too long.
+        frameskip_flag = true;
+    }
     if height == 1 { // If the image is 1 pixel tall we start at the bottom.
         wrapper_end = true;
     }
@@ -225,12 +229,15 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop.
             wrapper_end = true;
         }
+        if i_a % width != 0 && frameskip_flag == true { 
+            continue; // If we're not at the end and our image is big, we'll just skip until we're at the edge of the image and can draw a frame
+        }
         { // Modify our Mutex so that Macroquad can get the new frame.
-            let mut current_state = mutex.lock().unwrap();
-            current_state.0 = image_rgb_vec.to_vec();
-            current_state.1 = width;
-            current_state.2 = height;
-            current_state.3 = "PRNT";
+                let mut current_state = mutex.lock().unwrap();
+                current_state.0 = image_rgb_vec.to_vec();
+                current_state.1 = width;
+                current_state.2 = height;
+                current_state.3 = "PRNT";
         }
     }
     {
