@@ -114,7 +114,10 @@ async fn main() {
             .ui(&mut *root_ui(), |ui| {
                 for color in palette_colors {
                     Group::new(hash!("colors", color), Vec2::new(300., 80.)).ui(ui, |ui| {
-                        ui.label(Vec2::new(10., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b));
+                        ui.label(Vec2::new(60., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b));
+                        let sub_color_bytes: Vec<u8> = vec![color.r,color.g,color.b,255,];
+                        let sub_color_texture = Texture2D::from_rgba8(1, 1, &sub_color_bytes);
+                        ui.texture(sub_color_texture,50.,50.);
                     });
                 }
             });
