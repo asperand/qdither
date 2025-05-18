@@ -11,6 +11,9 @@
 
 */
 
+use macroquad::ui::{hash, root_ui,
+    widgets::{self, Group},
+    Ui,};
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -82,26 +85,39 @@ fn cli() -> Command {
 /// Rendering Logic
 #[macroquad::main("qdither")]
 async fn main() {
-    let render_data = Arc::new(Mutex::new((vec![RGB{r:3,g:3,b:3}],1,1,"WAIT"))); // Our frame data for Macroquad.
+    let render_data = Arc::new(Mutex::new((vec![RGB{r:3,g:3,b:3}],1,1,"WAIT",vec![RGB{r:3,g:3,b:3}]))); // Our frame data for Macroquad.
     let render_data_clone = Arc::clone(&render_data);
     let _main_handle = thread::spawn(move || { run(render_data);}); // Main logic for image processing.
     loop {
         let rgb_vec;
         let (width, height);
         let status;
+        let palette_colors;
         {
             let current_state = render_data_clone.lock().unwrap();
             rgb_vec = current_state.0.clone();
             width = current_state.1 as u16;
             height = current_state.2 as u16;
             status = current_state.3;
+            palette_colors = current_state.4.clone();
         }
         let rgba = to_raw_rgba_from_rgb(rgb_vec.to_vec());
         let texture = Texture2D::from_rgba8(width, height, &rgba);
         clear_background(BLACK);
         if status == "PRNT" {
-            request_new_screen_size(width as f32,height as f32);
+            request_new_screen_size((width+30) as f32,height as f32);
         }
+        // Our palette window
+        widgets::Window::new(hash!(), vec2(600., 200.), vec2(320., 400.))
+            .label("Current Palette")
+            .titlebar(true)
+            .ui(&mut *root_ui(), |ui| {
+                for color in palette_colors {
+                    Group::new(hash!("colors", color), Vec2::new(300., 80.)).ui(ui, |ui| {
+                        ui.label(Vec2::new(10., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b)).font_color();
+                    });
+                }
+            });
         draw_texture(&texture, 0., 0., WHITE);
         if status == "DONE" {
             request_new_screen_size(width as f32,(height+30) as f32);
@@ -178,7 +194,7 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str)>>) -> Vec<RGB<u8>> {
+fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -234,6 +250,7 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
                 current_state.1 = width;
                 current_state.2 = height;
                 current_state.3 = "PRNT";
+                current_state.4 = user_palette.clone();
         }
     }
     {
@@ -332,7 +349,7 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
 }
 
 /// Processing logic
-fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str)>>){
+fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>){
     let matches = cli().get_matches();
     let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
     let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
