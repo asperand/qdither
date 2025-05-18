@@ -114,7 +114,7 @@ async fn main() {
             .ui(&mut *root_ui(), |ui| {
                 for color in palette_colors {
                     Group::new(hash!("colors", color), Vec2::new(300., 80.)).ui(ui, |ui| {
-                        ui.label(Vec2::new(10., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b)).font_color();
+                        ui.label(Vec2::new(10., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b));
                     });
                 }
             });
