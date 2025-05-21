@@ -11,9 +11,17 @@
 
 */
 
+// ********
+// TODO: Update only one pixel by sending the changed pixel and it's index rather than the FULL frame
+// TODO: Run clippy
+// TODO: AtomicBool for letting each thread know when the frame is ready
+// from discord: "but like the main thread would set that bool to true, say, at the end of a frame"
+// "and the writing thread would periodically check that atomic, if true then lock the shared buffer and copy to it, and set the atomic back to false"
+// "that would limit locking to once per frame"
+// 
+
 use macroquad::ui::{hash, root_ui,
-    widgets::{self, Group},
-    Ui,};
+    widgets::{self, Group},};
 use rgb::ComponentMap;
 use image::Rgb;
 use image::ImageBuffer;
@@ -111,7 +119,7 @@ async fn main() {
         widgets::Window::new(hash!(), vec2(600., 200.), vec2(320., 400.))
             .label("Current Palette")
             .titlebar(true)
-            .ui(&mut *root_ui(), |ui| {
+            .ui(&mut root_ui(), |ui| {
                 for color in palette_colors {
                     Group::new(hash!("colors", color), Vec2::new(300., 80.)).ui(ui, |ui| {
                         ui.label(Vec2::new(60., 10.), &format!("#{:02X}{:02X}{:02X}",color.r,color.g,color.b));
@@ -137,8 +145,8 @@ where P: AsRef<Path>, {
     let mut user_palette = Vec::new();
     let file = File::open(palette_path)?;
     let lines = io::BufReader::new(file).lines();
-    for line in lines.flatten(){
-        if line.chars().any(|c| c.is_ascii_hexdigit()) == false || line.len() != 6 {
+    for line in lines.map_while(Result::ok){
+        if !line.chars().any(|c| c.is_ascii_hexdigit()) || line.len() != 6 {
             continue; // Skip the current line if it doesn't meet our standards
         }
         let mut cur = line.clone();
@@ -173,19 +181,18 @@ fn load_file(file_path : &String ) -> Result<(Vec<rgb::Rgb<u8>>, u32 ,u32),image
 }
 
 /// Simple Euclidean distance between two pixels
-fn eu_distance_pixels(current_pixel:RGB<u8>, compared_pixel:RGB<u8>) -> f32 {
-    let eu_distance = // Using color weighting
+fn eu_distance_pixels(current_pixel:RGB<u8>, compared_pixel:RGB<u8>) -> f32 { 
+            // Using color weighting
             (((current_pixel.r as f32 - compared_pixel.r as f32)* 0.3).powi(2)
             +((current_pixel.g as f32 - compared_pixel.g as f32) * 0.59).powi(2)
             +((current_pixel.b as f32 - compared_pixel.b as f32) * 0.11).powi(2))
-            .sqrt();
-    return eu_distance;
+            .sqrt()
 }
 
 /// From a single pixel, find the closest color in a vector of colors.
 fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8> {
     let mut lowest = 0;
-    let mut max_distance = 441.672956; // Max possible distance in a 256x256x256 box
+    let mut max_distance = 441.672; // Max possible distance in a 256x256x256 box
     for i in 0..user_palette.len() {
         let eu_distance = eu_distance_pixels(current_color,user_palette[i]);
         if eu_distance < max_distance {
@@ -193,11 +200,11 @@ fn find_nearest_color(current_color:RGB<u8>,user_palette:Vec<RGB<u8>>) -> RGB<u8
             lowest = i;
         }        
     }
-    return user_palette[lowest] // Return our new color!
+    user_palette[lowest] // Return our new color!
 }
 
 /// Edit the image file pixel by pixel, dithering it with Floyd-Steinberg Error Diffusion
-fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>) -> Vec<RGB<u8>> {
+fn dither_image_fs(image_rgb_vec:&mut [RGB<u8>], width:u32, height:u32, user_palette:Vec<RGB<u8>>,mutex:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>) -> Vec<RGB<u8>> {
     let mut wrapper_left = true;
     let mut wrapper_right = false;
     let mut wrapper_end = false;
@@ -244,7 +251,7 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
         if i_a+1 >= width*(height-1) { // We are at the bottom starting next loop
             wrapper_end = true;
         }
-        if i_a % width != 0 && frameskip_flag == true { 
+        if i_a % width != 0 && frameskip_flag { 
             continue; // If we're not at the end and our image is big, we'll just skip until we're at the edge of the image and can draw a frame
         }
         { // Modify our Mutex so that Macroquad can get the new frame
@@ -260,7 +267,7 @@ fn dither_image_fs(image_rgb_vec:&mut Vec<RGB<u8>>, width:u32, height:u32, user_
         let mut current_state = mutex.lock().unwrap();
         current_state.3 = "DONE" // Send done signal to our rendering loop
     }
-    return image_rgb_vec.to_vec()
+    image_rgb_vec.to_vec()
     
 }
 
@@ -272,7 +279,7 @@ fn to_raw_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
         raw_sequence.push(pixel.g);
         raw_sequence.push(pixel.b);
     }
-    return raw_sequence
+    raw_sequence
 }
 /// Make a raw sequence of u8 for RGBA image output from a vector of RGB values. This is specifically necessary for Macroquad rendering
 fn to_raw_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
@@ -281,13 +288,13 @@ fn to_raw_rgba_from_rgb(image_rgb_vec:Vec<RGB<u8>>) -> Vec<u8> {
         raw_sequence.push(pixel.r);
         raw_sequence.push(pixel.g);
         raw_sequence.push(pixel.b);
-        raw_sequence.push(255 as u8)
+        raw_sequence.push(255_u8)
     }
-    return raw_sequence
+    raw_sequence
 }
 
 /// Use K-Means algorithm to find the mean colors within an image given X clusters
-fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
+fn get_colors(image:&mut [RGB<u8>], palette_colors:u8) -> Vec<RGB<u8>> {
     let mut cluster_vec = Vec::<Cluster>::new(); // Empty vector of our clusters.
     for _i in 0..(palette_colors) { // How many colors we want out of the image decides how many clusters we create
         let new_cluster = Cluster {
@@ -298,9 +305,9 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
    }
    let mut new_cent_vec: Vec::<RGB<u8>>; // This is hacky, but we need a vector of centroids to be available function-wide so we can return it
    loop {
-        for pixel in image.into_iter() { // for each pixel in the image, we find the lowest distance cluster in our container and assign the current pixel to it
+        for pixel in image.iter_mut() { // for each pixel in the image, we find the lowest distance cluster in our container and assign the current pixel to it
             let mut lowest_distance_index = 0; // Each iteration, we reset our index that indicates the best cluster within the container of clusters
-            let mut max_distance = 441.672956; // And reset our max distance as well
+            let mut max_distance = 441.672; // And reset our max distance as well
             for i in 0..(cluster_vec.len()){ // For each cluster in the container, compare our current pixel with it's centroid
                 let eu_distance = eu_distance_pixels(*pixel,cluster_vec[i].centroid);
                 if eu_distance < max_distance { // If there's a lower distance...
@@ -312,27 +319,27 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
         }
         let mut prev_cent_vec = Vec::<RGB<u8>>::new();
         new_cent_vec = Vec::<RGB<u8>>::new(); // Clear the tracking vectors for these centroid values
-        for i in 0..(cluster_vec.len()){ // Finding our new centroid
+        for cluster in &mut cluster_vec { // Finding our new centroid
             let mut red_sum = 0;
             let mut green_sum = 0;
             let mut blue_sum = 0; // Resetting our sums for each subpixel
-            prev_cent_vec.push(cluster_vec[i].centroid);
-            for pixel in &cluster_vec[i].values { // Sum all r,g,b values individually
+            prev_cent_vec.push(cluster.centroid);
+            for pixel in &cluster.values { // Sum all r,g,b values individually
                 red_sum += pixel.r as u32;
                 green_sum += pixel.g as u32;
                 blue_sum += pixel.b as u32;
             }
 
-            if cluster_vec[i].values.len() == 0 { // This catches an edge case of an empty cluster
-                cluster_vec[i].values.push(RGB{r:255,g:255,b:255});
+            if cluster.values.is_empty() { // This catches an edge case of an empty cluster
+                cluster.values.push(RGB{r:255,g:255,b:255});
             }
 
-            cluster_vec[i].centroid.r = div_ceil(red_sum, cluster_vec[i].values.len() as u32) as u8;
-            cluster_vec[i].centroid.g = div_ceil(green_sum, cluster_vec[i].values.len() as u32) as u8;
-            cluster_vec[i].centroid.b = div_ceil(blue_sum, cluster_vec[i].values.len() as u32) as u8; // New centroid is set!
+            cluster.centroid.r = div_ceil(red_sum, cluster.values.len() as u32) as u8;
+            cluster.centroid.g = div_ceil(green_sum, cluster.values.len() as u32) as u8;
+            cluster.centroid.b = div_ceil(blue_sum, cluster.values.len() as u32) as u8; // New centroid is set!
 
-            new_cent_vec.push(cluster_vec[i].centroid); // Push our new one for comparison
-            cluster_vec[i].values = Vec::<RGB<u8>>::new(); // Clear our values vec for re-assignment since the old values are not needed
+            new_cent_vec.push(cluster.centroid); // Push our new one for comparison
+            cluster.values = Vec::<RGB<u8>>::new(); // Clear our values vec for re-assignment since the old values are not needed
         }
         // We determine convergence by taking the mean of means and comparing euclidean distance
         let mut is_converged = false;
@@ -344,11 +351,11 @@ fn get_colors(image:&mut Vec<RGB<u8>>, palette_colors:u8) -> Vec<RGB<u8>> {
                 is_converged = true;
             }
         }
-        if is_converged == true {
+        if is_converged {
             break;
         }
    }
-   return new_cent_vec;
+   new_cent_vec
 }
 
 /// Processing logic
@@ -357,7 +364,7 @@ fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>){
     let file_path = matches.get_one::<String>("IMG").expect("Couldn't get image path.");
     let palette_colors = matches.get_one::<u8>("NUM").expect("Couldn't get number of colors.");
     let palette_path = matches.get_one::<String>("PAL").expect("Couldn't get palette path.");
-    let mut image_tuple = load_file(&file_path).expect("Couldn't open file");
+    let mut image_tuple = load_file(file_path).expect("Couldn't open file");
     let user_palette_result = setup_palette(palette_path);
     let user_palette = match user_palette_result {
         Ok(user_palette) => user_palette,
@@ -366,7 +373,7 @@ fn run(render_data:Arc<Mutex<(Vec<RGB<u8>>,u32,u32,&str,Vec<RGB<u8>>)>>){
     let dithered_image = dither_image_fs(&mut image_tuple.0,image_tuple.2,image_tuple.1,user_palette,render_data);
     let new_raw = to_raw_from_rgb(dithered_image);
     let new_buffer: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(image_tuple.2,image_tuple.1,new_raw).unwrap();
-    let _ = match new_buffer.save("./dither.png") {
+    match new_buffer.save("./dither.png") {
         Err(_) => println!("Couldn't save image buffer"),
         Ok(_) => println!("Saved image buffer to dither.png"),
     };
