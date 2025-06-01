@@ -11,15 +11,6 @@
 
 */
 
-// ********
-// TODO: Update only one pixel by sending the changed pixel and it's index rather than the FULL frame
-// TODO: Run clippy
-// TODO: AtomicBool for letting each thread know when the frame is ready
-// from discord: "but like the main thread would set that bool to true, say, at the end of a frame"
-// "and the writing thread would periodically check that atomic, if true then lock the shared buffer and copy to it, and set the atomic back to false"
-// "that would limit locking to once per frame"
-// 
-
 use macroquad::ui::{hash, root_ui,
     widgets::{self, Group},};
 use rgb::ComponentMap;
@@ -41,6 +32,7 @@ use macroquad::prelude::*;
 use std::sync::{Arc, Mutex};
 
 /// We need to be able to add and subtract u8s (subpixels) together without it over/underflowing.
+// TODO: Pixel's newest release added this feature.
 trait RgbSatAdd {
   fn saturating_add(self, other: Self) -> Self;
 }
